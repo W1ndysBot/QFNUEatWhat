@@ -128,7 +128,8 @@ async def handle_group_message(websocket, msg):
         group_id = str(msg.get("group_id"))
         raw_message = str(msg.get("raw_message"))
         message_id = str(msg.get("message_id"))
-        authorized = user_id in owner_id
+        role = str(msg.get("role"))
+        authorized = is_authorized(role, user_id)
 
         # 处理开关命令
         if raw_message == "qfnuew":
@@ -142,14 +143,6 @@ async def handle_group_message(websocket, msg):
         # 处理添加菜品/饮品的命令
         add_match = re.match(r"^添加(菜品|饮品)\s+([^\s]+)\s+(.+)$", raw_message)
         if add_match:
-            if not authorized:
-                await send_group_msg(
-                    websocket,
-                    group_id,
-                    f"[CQ:reply,id={message_id}]❌你没有权限添加菜品/饮品",
-                )
-                return
-
             item_type = "菜品" if add_match.group(1) == "菜品" else "饮品"
             restaurant = add_match.group(2)
             item_name = add_match.group(3)
@@ -191,16 +184,72 @@ async def handle_group_message(websocket, msg):
 
             rest_name, item = get_random_item(menu_data, restaurant, item_type)
             if rest_name and item:
+                help_text = (
+                    f"\n\n💡 添加{item_type}命令：添加{item_type} 店名 {item_type}名"
+                    f"\n例如：添加{item_type} {rest_name} 新{item_type}"
+                    f"\n\n💡 删除{item_type}命令：删除{item_type} 店名 {item_type}名"
+                    f"\n例如：删除{item_type} {rest_name} {item}"
+                )
                 await send_group_msg(
                     websocket,
                     group_id,
-                    f"[CQ:reply,id={message_id}]{rest_name} {item}",
+                    f"[CQ:reply,id={message_id}]{rest_name} {item}{help_text}",
+                )
+            else:
+                help_text = (
+                    f"\n\n💡 添加{item_type}命令：添加{item_type} 店名 {item_type}名"
+                    f"\n💡 删除{item_type}命令：删除{item_type} 店名 {item_type}名"
+                )
+                await send_group_msg(
+                    websocket,
+                    group_id,
+                    f"[CQ:reply,id={message_id}]还没有添加任何{item_type}呢{help_text}",
+                )
+            return
+
+        # 处理删除菜品/饮品的命令
+        del_match = re.match(r"^删除(菜品|饮品)\s+([^\s]+)\s+(.+)$", raw_message)
+        if del_match:
+            if not authorized:
+                await send_group_msg(
+                    websocket,
+                    group_id,
+                    f"[CQ:reply,id={message_id}]❌你没有权限删除菜品/饮品",
+                )
+                return
+
+            item_type = "菜品" if del_match.group(1) == "菜品" else "饮品"
+            restaurant = del_match.group(2)
+            item_name = del_match.group(3)
+
+            menu_data = load_menu()
+            if restaurant not in menu_data:
+                await send_group_msg(
+                    websocket,
+                    group_id,
+                    f"[CQ:reply,id={message_id}]⚠️未找到该店铺：{restaurant}",
+                )
+                return
+
+            if item_name in menu_data[restaurant][item_type]:
+                menu_data[restaurant][item_type].remove(item_name)
+                # 如果餐厅的菜品和饮品都为空，删除该餐厅
+                if (
+                    not menu_data[restaurant]["菜品"]
+                    and not menu_data[restaurant]["饮品"]
+                ):
+                    del menu_data[restaurant]
+                save_menu(menu_data)
+                await send_group_msg(
+                    websocket,
+                    group_id,
+                    f"[CQ:reply,id={message_id}]✅已删除{item_type}：{restaurant} {item_name}",
                 )
             else:
                 await send_group_msg(
                     websocket,
                     group_id,
-                    f"[CQ:reply,id={message_id}]还没有添加任何{item_type}呢",
+                    f"[CQ:reply,id={message_id}]⚠️未找到该{item_type}：{restaurant} {item_name}",
                 )
             return
 
